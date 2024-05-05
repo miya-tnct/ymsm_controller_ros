@@ -1,6 +1,9 @@
 #include "ymsm_controller/controller/node.h"
 
 #include <algorithm>
+#include <string>
+#include <set>
+#include <unordered_map>
 
 #include "geometry_msgs/Twist.h"
 #include "tf2/convert.h"
@@ -20,7 +23,6 @@ Node::Node() :
 {
 }
 
-
 void Node::initialize_path(nav_msgs::Path::ConstPtr path_msg)
 {
   this->update_path(path_msg);
@@ -31,7 +33,10 @@ void Node::initialize_path(nav_msgs::Path::ConstPtr path_msg)
 void Node::update_path(nav_msgs::Path::ConstPtr path_msg)
 {
   path_msg_ = path_msg;
-  path_index_ = 0;
+  target_itr_ = path_msg_->poses.begin();
+  for (const auto & pose : path_msg->poses) {
+    frame_ids_.emplace(pose.header.frame_id);
+  }
 }
 
 void Node::publish_cmd_vel_zero(const ros::TimerEvent&)
@@ -42,30 +47,39 @@ void Node::publish_cmd_vel_zero(const ros::TimerEvent&)
 
 void Node::publish_cmd_vel(const ros::TimerEvent& timer_event)
 {
-  auto tf_msg_ = tf_buffer_.lookupTransform(
-    "odom", "base_link", ros::Time(0));
+  std::unordered_map<std::string, geometry_msgs::TransformStamped> tf_msgs;
+  for (const auto & frame_id : frame_ids_) {
+    try {
+      tf_msgs[frame_id] = tf_buffer_.lookupTransform(
+        frame_id, "base_link", ros::Time(0));
+    }
+    catch (...) {
+      this->publish_cmd_vel_zero(timer_event);
+      return;
+    }
+  }
   
   double error_x, error_y;
+  geometry_msgs::TransformStamped tf_msg;
   while(true) {
-    if (path_index_ >= path_msg_->poses.size()) {
+    if (target_itr_ == path_msg_->poses.end()) {
       this->publish_cmd_vel_zero(timer_event);
       return;
     }
 
-    const auto target_msg = path_msg_->poses[path_index_];
-
-    error_x = target_msg.pose.position.x - tf_msg_.transform.translation.x;
-    error_y = target_msg.pose.position.y - tf_msg_.transform.translation.y;
+    tf_msg = tf_msgs[target_itr_->header.frame_id];
+    error_x = target_itr_->pose.position.x - tf_msg.transform.translation.x;
+    error_y = target_itr_->pose.position.y - tf_msg.transform.translation.y;
 
     if (std::hypot(error_x, error_y) >= 0.2) {
       break;
     }
 
-    ++path_index_;
+    ++target_itr_;
   }
 
   tf2::Quaternion quat;
-  tf2::fromMsg(tf_msg_.transform.rotation, quat);
+  tf2::fromMsg(tf_msg.transform.rotation, quat);
   double roll, pitch, yaw;
   tf2::Matrix3x3(quat).getRPY(roll, pitch, yaw);
   
@@ -74,8 +88,8 @@ void Node::publish_cmd_vel(const ros::TimerEvent& timer_event)
   while (error_yaw < -M_PI) error_yaw += 2 * M_PI;
   
   geometry_msgs::Twist cmd_vel_msg;
-  cmd_vel_msg.linear.x = std::min(std::hypot(error_x, error_y), 0.2);
-  cmd_vel_msg.angular.z = error_yaw * 0.2;
+  cmd_vel_msg.linear.x = std::min(std::hypot(error_x, error_y), 0.1);
+  cmd_vel_msg.angular.z = error_yaw * 0.6;
 
   cmd_vel_publisher_.publish(cmd_vel_msg);
 }

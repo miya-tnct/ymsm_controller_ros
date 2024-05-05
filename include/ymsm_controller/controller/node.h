@@ -25,9 +25,9 @@ private:
 
   void publish_cmd_vel_zero(const ros::TimerEvent&);
 
-  std::size_t path_index_;
-
   nav_msgs::Path::ConstPtr path_msg_;
+  std::set<std::string> frame_ids_;
+  std::vector<geometry_msgs::PoseStamped>::const_iterator target_itr_;
 
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listner_;
