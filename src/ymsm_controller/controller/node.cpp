@@ -98,7 +98,7 @@ void Node::publish_cmd_vel(const ros::TimerEvent& timer_event)
   while (error_yaw < -M_PI) error_yaw += 2 * M_PI;
   
   geometry_msgs::Twist cmd_vel_msg;
-  cmd_vel_msg.linear.x = std::min(std::hypot(error_x, error_y), 0.1);
+  cmd_vel_msg.linear.x = std::max(std::min(std::hypot(error_x, error_y) - error_yaw * 0.2, 0.2), 0.0);
   cmd_vel_msg.angular.z = error_yaw * 0.6;
 
   cmd_vel_publisher_.publish(cmd_vel_msg);
