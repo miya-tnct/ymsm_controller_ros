@@ -34,8 +34,13 @@ void Node::update_path(nav_msgs::Path::ConstPtr path_msg)
 {
   path_msg_ = path_msg;
   target_itr_ = path_msg_->poses.begin();
+  frame_ids_.clear();
+  frame_ids_.emplace(path_msg_->header.frame_id);
   for (const auto & pose : path_msg->poses) {
-    frame_ids_.emplace(pose.header.frame_id);
+    auto frame_id = pose.header.frame_id;
+    if (!frame_id.empty()) {
+      frame_ids_.emplace(std::move(frame_id));
+    }
   }
 }
 
@@ -67,7 +72,12 @@ void Node::publish_cmd_vel(const ros::TimerEvent& timer_event)
       return;
     }
 
-    tf_msg = tf_msgs[target_itr_->header.frame_id];
+    if (!target_itr_->header.frame_id.empty()) {
+      tf_msg = tf_msgs[target_itr_->header.frame_id];
+    }
+    else {
+      tf_msg = tf_msgs[path_msg_->header.frame_id];
+    }
     error_x = target_itr_->pose.position.x - tf_msg.transform.translation.x;
     error_y = target_itr_->pose.position.y - tf_msg.transform.translation.y;
 
