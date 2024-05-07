@@ -7,7 +7,7 @@
 
 #include "geometry_msgs/Twist.h"
 #include "tf2/convert.h"
-#include "tf2/LinearMath/Quaternion.h"
+#include "tf2/LinearMath/Transform.h"
 #include "tf2/LinearMath/Matrix3x3.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.h"
 
@@ -65,41 +65,37 @@ void Node::publish_cmd_vel(const ros::TimerEvent& timer_event)
   }
   
   double error_x, error_y;
-  geometry_msgs::TransformStamped tf_msg;
+  tf2::Transform error_tf;
   while(true) {
     if (target_itr_ == path_msg_->poses.end()) {
       this->publish_cmd_vel_zero(timer_event);
       return;
     }
 
+    geometry_msgs::TransformStamped tf_msg;
     if (!target_itr_->header.frame_id.empty()) {
       tf_msg = tf_msgs[target_itr_->header.frame_id];
     }
     else {
       tf_msg = tf_msgs[path_msg_->header.frame_id];
     }
-    error_x = target_itr_->pose.position.x - tf_msg.transform.translation.x;
-    error_y = target_itr_->pose.position.y - tf_msg.transform.translation.y;
+    tf2::Transform robot_tf, target_tf;
+    tf2::fromMsg(tf_msg.transform, robot_tf);
+    tf2::fromMsg(target_itr_->pose, target_tf);
+    error_tf = robot_tf.inverse() * target_tf;
 
-    if (std::hypot(error_x, error_y) >= 0.2) {
+    if (error_tf.getOrigin().length2() >= 0.3 * 0.3) {
       break;
     }
 
     ++target_itr_;
   }
 
-  tf2::Quaternion quat;
-  tf2::fromMsg(tf_msg.transform.rotation, quat);
-  double roll, pitch, yaw;
-  tf2::Matrix3x3(quat).getRPY(roll, pitch, yaw);
-  
-  auto error_yaw = std::atan2(error_y, error_x) - yaw;
-  while (error_yaw > +M_PI) error_yaw -= 2 * M_PI;
-  while (error_yaw < -M_PI) error_yaw += 2 * M_PI;
+  auto error_angle = std::atan2(error_tf.getOrigin().y(), error_tf.getOrigin().x());
   
   geometry_msgs::Twist cmd_vel_msg;
-  cmd_vel_msg.linear.x = std::max(std::min(std::hypot(error_x, error_y) - error_yaw * 0.2, 0.2), 0.0);
-  cmd_vel_msg.angular.z = error_yaw * 0.6;
+  cmd_vel_msg.linear.x = std::cos(error_angle) * std::min(error_tf.getOrigin().x(), 0.2);
+  cmd_vel_msg.angular.z = error_angle * 0.6;
 
   cmd_vel_publisher_.publish(cmd_vel_msg);
 }
